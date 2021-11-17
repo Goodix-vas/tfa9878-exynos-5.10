@@ -5269,7 +5269,7 @@ enum tfa_error tfa_dev_start(struct tfa_device *tfa,
 	if (tfa_count_status_flag(tfa, TFA_SET_DEVICE) < 1) {
 		pr_info("%s: initialize active handle\n", __func__);
 		/* check activeness with profile */
-		tfa_set_active_handle(tfa, tfa->profile);
+		tfa_set_active_handle(tfa, next_profile);
 	}
 
 	if (tfa->active_handle != -1) {
@@ -5277,10 +5277,9 @@ enum tfa_error tfa_dev_start(struct tfa_device *tfa,
 			tfa_cont_device_name(tfa->cnt, tfa->active_handle));
 
 		if (tfa->dev_idx != tfa->active_handle) {
-			tfa_dev_set_swprof(tfa,
-				(unsigned short)next_profile);
-			tfa_dev_set_swvstep(tfa,
-				(unsigned short)vstep);
+			pr_info("%s: keep profile %d instead of changing to %d\n",
+				__func__, tfa_dev_get_swprof(tfa),
+				next_profile);
 
 			pr_info("%s: stop unused dev %d, by force\n",
 				__func__, tfa->dev_idx);
@@ -5372,6 +5371,7 @@ enum tfa_error tfa_dev_start(struct tfa_device *tfa,
 					__func__, cal_profile);
 				next_profile = cal_profile;
 			}
+			tfa->first_after_boot = 1;
 		} else {
 			pr_info("%s: keep using profile (%d) and use dummy value if unavailable\n",
 				__func__, next_profile);
@@ -5379,7 +5379,6 @@ enum tfa_error tfa_dev_start(struct tfa_device *tfa,
 			if (tfa->is_probus_device)
 				tfa->reset_mtpex = 0;
 		}
-		tfa->first_after_boot = 1;
 	}
 
 	/* TfaRun_SpeakerBoost implies un-mute */
