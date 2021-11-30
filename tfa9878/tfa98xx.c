@@ -60,6 +60,7 @@
 #define TFA98XX_VERSION	TFA98XX_API_REV_STR
 
 #define TFA_SET_DAPM_IGNORE_SUSPEND
+#define TFA_STOP_AND_RESTART_FOR_CALIBRATION
 
 /* Change volume selection behavior:
  * Uncomment following line to generate a profile change when updating
@@ -1701,8 +1702,14 @@ static int tfa98xx_run_calibration(struct tfa98xx *tfa98xx0)
 		/* force to enable all the devices */
 		tfa->set_active = 1;
 #endif
+
+		/* force to mute amplifier to flush buffer */
+		tfa_run_mute(tfa);
 	}
 
+	msleep_interruptible(10);
+
+#if defined(TFA_STOP_AND_RESTART_FOR_CALIBRATION)
 	list_for_each_entry(tfa98xx, &tfa98xx_device_list, list) {
 		pr_info("%s: dev %d - stopping devices\n",
 			__func__, tfa98xx->tfa->dev_idx);
@@ -1718,12 +1725,18 @@ static int tfa98xx_run_calibration(struct tfa98xx *tfa98xx0)
 
 		mutex_unlock(&tfa98xx->dsp_lock);
 	}
+#endif /* TFA_STOP_AND_RESTART_FOR_CALIBRATION */
 
 	pr_info("%s: calibration started!\n", __func__);
 
-	list_for_each_entry(tfa98xx, &tfa98xx_device_list, list) {
+	for (idx = 0; idx < ndev; idx++) {
+		tfa = tfa98xx_get_tfa_device_from_index(idx);
+		if (tfa == NULL)
+			continue;
+
+		tfa98xx = (struct tfa98xx *)tfa->data;
 		pr_info("%s: dev %d - starting devices for calibration\n",
-			__func__, tfa98xx->tfa->dev_idx);
+			__func__, idx);
 
 		mutex_lock(&tfa98xx->dsp_lock);
 
@@ -6943,7 +6956,7 @@ static int tfa98xx_i2c_probe(struct i2c_client *i2c,
 
 	mutex_lock(&tfa98xx_mutex);
 	tfa98xx_device_count++;
-	list_add(&tfa98xx->list, &tfa98xx_device_list);
+	list_add(&tfa98xx->list, &tfa98xx_device_list); /* stack */
 	mutex_unlock(&tfa98xx_mutex);
 
 	return 0;
