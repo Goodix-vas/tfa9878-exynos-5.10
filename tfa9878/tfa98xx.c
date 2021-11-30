@@ -6579,9 +6579,15 @@ int tfa98xx_write_sknt_control(int idx, int value)
 		return -EINVAL;
 
 	if (tfa98xx_count_active_stream(BIT_PSTREAM) == 0) {
-		pr_info("%s: skipped - tfadsp is not active!\n",
+		pr_info("%s: skipped - no active stream!\n",
 			__func__);
-		return -ENODEV;
+		goto tfa98xx_write_sknt_control_exit;
+	}
+
+	if (tfa->is_bypass) {
+		pr_info("%s: skipped - tfadsp in bypass\n",
+			__func__);
+		goto tfa98xx_write_sknt_control_exit;
 	}
 
 #if defined(TFA_RESET_STC_VOLUME_IN_LPM)
@@ -6612,6 +6618,7 @@ int tfa98xx_write_sknt_control(int idx, int value)
 			pr_info("%s: tfa_stc - dev %d: check power down\n",
 				__func__, i);
 			ready++;
+			data[i] = DEFAULT_REF_TEMP;
 			continue;
 		}
 
@@ -6635,14 +6642,15 @@ int tfa98xx_write_sknt_control(int idx, int value)
 	if (ret) {
 		pr_info("%s: tfa_stc failed to write data to amplifier\n",
 			__func__);
-		return -EINVAL;
+		goto tfa98xx_write_sknt_control_exit;
 	}
 
 	for (i = 0; i < ndev; i++)
 		pr_debug("%s: data[%d]%s - %d\n", __func__, i,
 			(update[i]) ? "*" : "", data[i]);
 
-	pr_info("%s: tfa_stc - reset update after setting\n",
+tfa98xx_write_sknt_control_exit:
+	pr_info("%s: tfa_stc - reset update flags\n",
 		__func__);
 	memset(update, 0, ndev * sizeof(int));
 
