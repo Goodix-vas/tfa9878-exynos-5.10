@@ -6603,13 +6603,18 @@ int tfa98xx_write_sknt_control(int idx, int value)
 		goto tfa98xx_write_sknt_control_exit;
 	}
 
-#if defined(TFA_RESET_STC_VOLUME_IN_LPM)
 	pm = tfa_get_power_state(idx);
-	pr_info("%s: tfa_stc - dev %d - power state 0x%x\n",
-		__func__, idx, pm);
-
-	if (pm > 0) /* reset gain in low power state */
+	if (pm & 0x4) { /* skip if device is powered down */
+		pr_info("%s: tfa_stc - skip dev %d - power state 0x%x\n",
+			__func__, idx, pm);
+		return ret;
+	}
+#if defined(TFA_RESET_STC_VOLUME_IN_LPM)
+	if (pm > 0) { /* reset gain in low power state */
+		pr_info("%s: tfa_stc - dev %d - set default - power state 0x%x\n",
+			__func__, idx, pm);
 		value = DEFAULT_REF_TEMP;
+	}
 #endif /* TFA_RESET_STC_VOLUME_IN_LPM */
 
 	pr_info("%s: tfa_stc - dev %d - set surface temperature (%d)\n",
