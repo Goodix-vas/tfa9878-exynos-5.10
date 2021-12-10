@@ -3398,9 +3398,6 @@ static void tfa98xx_add_widgets(struct tfa98xx *tfa98xx)
 		= snd_soc_codec_get_dapm(tfa98xx->codec);
 #endif
 	struct snd_soc_dapm_widget *widgets;
-#if defined(TFA_SET_DAPM_IGNORE_SUSPEND)
-	int i;
-#endif
 	unsigned int num_dapm_widgets
 		= ARRAY_SIZE(tfa98xx_dapm_widgets_common);
 
@@ -3426,6 +3423,13 @@ static void tfa98xx_add_widgets(struct tfa98xx *tfa98xx)
 	snd_soc_dapm_add_routes(dapm, tfa98xx_dapm_routes_common,
 		ARRAY_SIZE(tfa98xx_dapm_routes_common));
 
+#if defined(TFA_SET_DAPM_IGNORE_SUSPEND)
+	snd_soc_dapm_ignore_suspend(dapm, "AIF IN");
+	snd_soc_dapm_ignore_suspend(dapm, "OUTL");
+	snd_soc_dapm_ignore_suspend(dapm, "AIF OUT");
+	snd_soc_dapm_ignore_suspend(dapm, "AEC Loopback");
+#endif
+
 	if (tfa98xx->flags & TFA98XX_FLAG_STEREO_DEVICE) {
 		snd_soc_dapm_new_controls
 			(dapm, tfa98xx_dapm_widgets_stereo,
@@ -3433,26 +3437,11 @@ static void tfa98xx_add_widgets(struct tfa98xx *tfa98xx)
 		snd_soc_dapm_add_routes
 			(dapm, tfa98xx_dapm_routes_stereo,
 			ARRAY_SIZE(tfa98xx_dapm_routes_stereo));
-	}
 
 #if defined(TFA_SET_DAPM_IGNORE_SUSPEND)
-	if (num_dapm_widgets > 0) {
-		for (i = 0; i < num_dapm_widgets; i++) {
-			if (!widgets[i].sname)
-				continue;
-			if ((widgets[i].id == snd_soc_dapm_aif_in)
-				|| (widgets[i].id == snd_soc_dapm_aif_out)) {
-				pr_info("dapm_ignore_suspend widgets[%d].sname=%s\n",
-					i, widgets[i].sname);
-				snd_soc_dapm_ignore_suspend(dapm,
-					widgets[i].sname);
-			}
-		}
-	}
-
-	snd_soc_dapm_ignore_suspend(dapm, "AIF IN");
-	snd_soc_dapm_ignore_suspend(dapm, "OUTL");
+		snd_soc_dapm_ignore_suspend(dapm, "OUTR");
 #endif
+	}
 
 #if defined(USE_DMIC_FOR_AMPLIFIER)
 	if (tfa98xx->flags & TFA98XX_FLAG_MULTI_MIC_INPUTS) {
