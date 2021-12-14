@@ -2721,8 +2721,10 @@ static int tfa98xx_set_mute_ctl(struct snd_kcontrol *kcontrol,
 		/* exit if stream is not ready for initialization */
 		if (tfa98xx->pstream == 0
 			&& tfa98xx->samstream == 0) {
-			pr_info("%s: [%d] cannot unmute unless p/samstream is on\n",
-				__func__, dev);
+			pr_info("%s: [%d] only store request (%s), unless p/samstream is on\n",
+				__func__, dev,
+				(request == 1) ? "mute" : "unmute");
+			tfa->mute_state = request;
 			continue;
 		}
 
