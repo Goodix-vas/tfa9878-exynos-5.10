@@ -61,6 +61,7 @@
 
 #define TFA_SET_DAPM_IGNORE_SUSPEND
 #define TFA_STOP_AND_RESTART_FOR_CALIBRATION
+#define TFA_BYPASS_BEFORE_RECONFIG
 
 /* Change volume selection behavior:
  * Uncomment following line to generate a profile change when updating
@@ -203,6 +204,10 @@ static int _tfa98xx_stop(struct tfa98xx *tfa98xx);
 static void tfa98xx_check_calibration(struct tfa98xx *tfa98xx);
 #endif
 static int tfa98xx_run_calibration(struct tfa98xx *tfa98xx);
+
+#if defined(TFA_BYPASS_BEFORE_RECONFIG)
+static enum tfa98xx_error tfa98xx_set_tfadsp_bypass(struct tfa_device *tfa);
+#endif
 
 #if defined(TFA_READ_REFERENCE_TEMP)
 static enum tfa98xx_error tfa98xx_read_reference_temp(short *value);
@@ -1614,6 +1619,55 @@ static void tfa98xx_check_calibration(struct tfa98xx *tfa98xx)
 }
 #endif
 
+#if defined(TFA_BYPASS_BEFORE_RECONFIG)
+static enum tfa98xx_error tfa98xx_set_tfadsp_bypass(struct tfa_device *tfa)
+{
+	enum tfa98xx_error err = TFA98XX_ERROR_OK;
+	int res_len = 3;
+#if defined(TFA_CUSTOM_FORMAT_AT_RESPONSE)
+	unsigned char buf[2 * 3] = {0};
+#else
+	unsigned char buf[3] = {0};
+#endif /* TFA_CUSTOM_FORMAT_AT_RESPONSE */
+	int data[2], is_configured = 0;
+
+#if defined(TFA_CUSTOM_FORMAT_AT_RESPONSE)
+	res_len = 2 * 3;
+#else
+	res_len = 3;
+#endif /* TFA_CUSTOM_FORMAT_AT_RESPONSE */
+	err = tfa_dsp_cmd_id_write_read(tfa, MODULE_CUSTOM,
+		CUSTOM_PARAM_GET_CONFIGURED, res_len, buf);
+	if (err == TFA98XX_ERROR_OK) {
+		tfa98xx_convert_bytes2data(res_len, buf, data);
+#if defined(TFA_CUSTOM_FORMAT_AT_RESPONSE)
+		is_configured = data[1];
+#else
+		is_configured = data[0];
+#endif /* TFA_CUSTOM_FORMAT_AT_RESPONSE */
+
+		pr_info("%s: check if configured (%d)\n",
+			__func__, is_configured);
+	}
+
+	/* move on if not configured */
+	if (!is_configured)
+		return err;
+
+	pr_info("%s: set bypass if configured\n",
+		__func__);
+
+	memset(buf, 0, 3); /* dummy value */
+	err = tfa_dsp_cmd_id_write(tfa, MODULE_CUSTOM,
+		CUSTOM_PARAM_SET_BYPASS, 3, buf);
+	if (err != TFA98XX_ERROR_OK)
+		pr_info("%s: error in setting bypass (err = %d)\n",
+			__func__, err);
+
+	return err;
+}
+#endif /* TFA_BYPASS_BEFORE_RECONFIG */
+
 static int tfa98xx_run_calibration(struct tfa98xx *tfa98xx0)
 {
 	struct tfa98xx *tfa98xx;
@@ -1648,6 +1702,14 @@ static int tfa98xx_run_calibration(struct tfa98xx *tfa98xx0)
 		temp_val = DEFAULT_REF_TEMP; /* default */
 	}
 #endif
+
+#if defined(TFA_BYPASS_BEFORE_RECONFIG)
+	if (tfa98xx0->tfa->is_bypass)
+		pr_debug("%s: skipped setting bypass - tfadsp in bypass\n",
+			__func__);
+	else
+		tfa98xx_set_tfadsp_bypass(tfa98xx0->tfa);
+#endif /* TFA_BYPASS_BEFORE_RECONFIG */
 
 	for (idx = 0; idx < ndev; idx++) {
 		tfa = tfa98xx_get_tfa_device_from_index(idx);
@@ -1707,6 +1769,7 @@ static int tfa98xx_run_calibration(struct tfa98xx *tfa98xx0)
 		tfa_run_mute(tfa);
 	}
 
+	/* wait before restarting for calibration */
 	msleep_interruptible(10);
 
 #if defined(TFA_STOP_AND_RESTART_FOR_CALIBRATION)
@@ -3399,9 +3462,9 @@ static void tfa98xx_add_widgets(struct tfa98xx *tfa98xx)
 	struct snd_soc_dapm_context *dapm
 		= snd_soc_codec_get_dapm(tfa98xx->codec);
 #endif
-	struct snd_soc_dapm_widget *widgets;
 	unsigned int num_dapm_widgets
 		= ARRAY_SIZE(tfa98xx_dapm_widgets_common);
+	struct snd_soc_dapm_widget *widgets;
 
 	widgets = devm_kzalloc(tfa98xx->dev,
 		sizeof(struct snd_soc_dapm_widget)

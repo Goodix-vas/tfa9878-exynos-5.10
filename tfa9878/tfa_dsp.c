@@ -58,7 +58,7 @@
 #define WRITE_CALIBRATION_DATA_PARTLY
 #define TRACE_STATUS_AT_CALIBRATION
 #define DETECT_VVAL_WITH_EVENT
-#define DETECT_DAMAGE_WITH_EVENT
+#undef DETECT_DAMAGE_WITH_EVENT
 #undef CHECK_CALIBRATION_DONE_MANUALLY
 #define RAMPING_WITH_USLEEP
 
@@ -2617,8 +2617,10 @@ enum tfa98xx_error tfa_dsp_cmd_id_write(struct tfa_device *tfa,
 	buffer[nr++] = module_id + 0x80;
 	buffer[nr++] = param_id;
 
-	memcpy(&buffer[nr], data, num_bytes);
-	nr += num_bytes;
+	if (data != NULL && num_bytes > 0) {
+		memcpy(&buffer[nr], data, num_bytes);
+		nr += num_bytes;
+	}
 
 	error = dsp_msg(tfa, nr, (char *)buffer);
 
@@ -4856,10 +4858,10 @@ int tfa_run_damage_check(struct tfa_device *tfa,
 		damage_event
 			= (TFA_GET_BIT_VALUE(dsp_event,
 			i + 1)) ? 1 : 0;
+#if defined(DETECT_DAMAGE_WITH_EVENT)
 		if (!damage_event)
 			continue;
 
-#if defined(DETECT_DAMAGE_WITH_EVENT)
 		/* set damage flag with event */
 		ntfa->spkr_damaged |= damage_event;
 #else
@@ -4895,10 +4897,10 @@ int tfa_run_vval_result_check(struct tfa_device *tfa,
 		vval_event
 			= (TFA_GET_BIT_VALUE(dsp_event,
 			i + 3)) ? VVAL_FAIL : VVAL_PASS;
+#if defined(DETECT_VVAL_WITH_EVENT)
 		if (!vval_event)
 			continue;
 
-#if defined(DETECT_VVAL_WITH_EVENT)
 		/* set vval flag with event */
 		ntfa->vval_result |= vval_event;
 #else
@@ -5021,31 +5023,39 @@ tfa_run_wait_calibration(struct tfa_device *tfa, int *calibrate_done)
 				dsp_event, dsp_status,
 				tries + 1);
 
+			/* wait until calibration done status is set */
+			if (!(dsp_status & 0x1)) {
+				tries++;
+				continue;
+			}
+
+			*calibrate_done = 1;
+
 #if defined(TFA_USE_TFAVVAL_NODE)
+#if defined(DETECT_DAMAGE_WITH_EVENT)
 			if ((dsp_event & 0x18) != 0) /* V validation event */
+#else
+			if ((dsp_status & 0x18) != 0) /* V validation status */
+#endif
 				vval_result = tfa_run_vval_result_check(tfa,
 					dsp_event, dsp_status);
 #endif /* TFA_USE_TFAVVAL_NODE */
-
+#if defined(DETECT_DAMAGE_WITH_EVENT)
 			if ((dsp_event & 0x6) != 0) /* damage event */
+#else
+			if ((dsp_status & 0x6) != 0) /* damage event */
+#endif
 				damaged = tfa_run_damage_check(tfa,
 					dsp_event, dsp_status);
 
 #if defined(TFA_USE_TFAVVAL_NODE)
 			if (vval_result || damaged)
-				break; /* exit loop */
+				*calibrate_done = 0; /* failure */
 #else
 			if (damaged)
-				break; /* exit loop */
+				*calibrate_done = 0; /* failure */
 #endif /* TFA_USE_TFAVVAL_NODE */
-
-			/* set success if damage is not detected */
-			if (dsp_status & 0x1) {
-				*calibrate_done = 1;
-				break;
-			}
-
-			tries++;
+			break;
 		}
 
 		if (tries >= TFA98XX_API_WAITCAL_NTRIES)

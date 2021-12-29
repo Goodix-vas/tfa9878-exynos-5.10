@@ -131,11 +131,17 @@ enum tfa_fw_event {/* not all available on each device */
 #define SB_PARAM_GET_TSPKR              0xA8
 /* #define SB_PARAM_GET_TAG                0xFF */ /* removed */
 
+/* aligned with wrapper */
+/* SET */
 #if !defined(TFA_USE_STC_VOLUME_TABLE)
 #if defined(TFA_USE_CUSTOM_SET_TSURF)
-#define CUSTOM_PARAM_SET_TSURF          0x01 /* aligned with wrapper */
+#define CUSTOM_PARAM_SET_TSURF          0x01
 #endif
 #endif
+#define CUSTOM_PARAM_SET_BYPASS         0x02
+
+/* GET */
+#define CUSTOM_PARAM_GET_CONFIGURED     0x81
 
 /* old version */
 #define SB_PARAM_SET_EQ                 0x0A /* 2 EQ filters */
