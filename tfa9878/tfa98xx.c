@@ -6590,6 +6590,12 @@ int tfa98xx_update_spkt_data(int idx)
 		return DEFAULT_REF_TEMP;
 	}
 
+	if (tfa->is_calibrating) {
+		pr_info("%s: skipped - tfadsp is running calibraion!\n",
+			__func__);
+		return DEFAULT_REF_TEMP;
+	}
+
 #if defined(TFA_USE_DEFAULT_TEMP_IN_LPM)
 	pm = tfa_get_power_state(idx);
 	pr_info("%s: tfa_stc - dev %d - power state 0x%x\n",
@@ -6654,6 +6660,12 @@ int tfa98xx_write_sknt_control(int idx, int value)
 
 	if (tfa->is_bypass) {
 		pr_info("%s: skipped - tfadsp in bypass\n",
+			__func__);
+		goto tfa98xx_write_sknt_control_exit;
+	}
+
+	if (tfa->is_calibrating) {
+		pr_info("%s: skipped - tfadsp is running calibraion!\n",
 			__func__);
 		goto tfa98xx_write_sknt_control_exit;
 	}

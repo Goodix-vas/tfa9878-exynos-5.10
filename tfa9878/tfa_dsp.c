@@ -69,6 +69,7 @@
  * static variables
  */
 static DEFINE_MUTEX(dev_lock);
+static DEFINE_MUTEX(dsp_msg_lock);
 static int dsp_cal_value[MAX_CHANNELS] = {-1, -1};
 
 #if defined(TFA_WAIT_CAL_IN_WORKQUEUE)
@@ -1088,6 +1089,8 @@ enum tfa98xx_error tfa98xx_dsp_get_memory(struct tfa_device *tfa,
 	char msg[4 * 3];
 	int nr = 0;
 
+	mutex_lock(&dsp_msg_lock);
+
 	msg[nr++] = 8;
 	msg[nr++] = MODULE_FRAMEWORK + 0x80;
 	msg[nr++] = FW_PAR_ID_GET_MEMORY;
@@ -1108,11 +1111,15 @@ enum tfa98xx_error tfa98xx_dsp_get_memory(struct tfa_device *tfa,
 	tfa->individual_msg = 1;
 	error = dsp_msg(tfa, nr, (char *)msg);
 
-	if (error != TFA98XX_ERROR_OK)
+	if (error != TFA98XX_ERROR_OK) {
+		mutex_unlock(&dsp_msg_lock);
 		return error;
+	}
 
 	/* read the data from the device (length * 3 = words) */
 	error = dsp_msg_read(tfa, length * 3, bytes);
+
+	mutex_unlock(&dsp_msg_lock);
 
 	return error;
 }
@@ -1123,6 +1130,8 @@ enum tfa98xx_error tfa98xx_dsp_set_memory(struct tfa_device *tfa,
 	enum tfa98xx_error error = TFA98XX_ERROR_OK;
 	int nr = 0;
 	char msg[5 * 3];
+
+	mutex_lock(&dsp_msg_lock);
 
 	msg[nr++] = 8;
 	msg[nr++] = MODULE_FRAMEWORK + 0x80;
@@ -1147,6 +1156,8 @@ enum tfa98xx_error tfa98xx_dsp_set_memory(struct tfa_device *tfa,
 	/* send msg */
 	tfa->individual_msg = 1;
 	error = dsp_msg(tfa, nr, (char *)msg);
+
+	mutex_unlock(&dsp_msg_lock);
 
 	return error;
 }
@@ -2577,6 +2588,8 @@ tfa98xx_dsp_biquad_disable(struct tfa_device *tfa, int biquad_index)
 		|| biquad_index < 1)
 		return TFA98XX_ERROR_BAD_PARAMETER;
 
+	mutex_lock(&dsp_msg_lock);
+
 	/* make opcode */
 	bytes[nr++] = 0;
 	bytes[nr++] = MODULE_BIQUADFILTERBANK + 0x80;
@@ -2596,6 +2609,8 @@ tfa98xx_dsp_biquad_disable(struct tfa_device *tfa, int biquad_index)
 
 	error = dsp_msg(tfa, nr, (char *)bytes);
 
+	mutex_unlock(&dsp_msg_lock);
+
 	return error;
 }
 
@@ -2613,6 +2628,8 @@ enum tfa98xx_error tfa_dsp_cmd_id_write(struct tfa_device *tfa,
 	if (buffer == NULL)
 		return TFA98XX_ERROR_FAIL;
 
+	mutex_lock(&dsp_msg_lock);
+
 	buffer[nr++] = tfa->spkr_select;
 	buffer[nr++] = module_id + 0x80;
 	buffer[nr++] = param_id;
@@ -2623,6 +2640,8 @@ enum tfa98xx_error tfa_dsp_cmd_id_write(struct tfa_device *tfa,
 	}
 
 	error = dsp_msg(tfa, nr, (char *)buffer);
+
+	mutex_unlock(&dsp_msg_lock);
 
 	kmem_cache_free(tfa->cachep, buffer);
 
@@ -2645,6 +2664,8 @@ enum tfa98xx_error tfa_dsp_cmd_id_write_read(struct tfa_device *tfa,
 		return TFA98XX_ERROR_FAIL;
 	}
 
+	mutex_lock(&dsp_msg_lock);
+
 	if ((tfa->is_probus_device) && (tfa->dev_count == 1)
 		&& (param_id == SB_PARAM_GET_RE25C
 		|| param_id == SB_PARAM_GET_LSMODEL
@@ -2664,11 +2685,15 @@ enum tfa98xx_error tfa_dsp_cmd_id_write_read(struct tfa_device *tfa,
 
 	tfa->individual_msg = 1;
 	error = dsp_msg(tfa, nr, (char *)buffer);
-	if (error != TFA98XX_ERROR_OK)
+	if (error != TFA98XX_ERROR_OK) {
+		mutex_unlock(&dsp_msg_lock);
 		return error;
+	}
 
 	/* read the data from the dsp */
 	error = dsp_msg_read(tfa, num_bytes, data);
+
+	mutex_unlock(&dsp_msg_lock);
 
 	return error;
 }
@@ -2683,6 +2708,8 @@ enum tfa98xx_error tfa_dsp_cmd_id_coefs(struct tfa_device *tfa,
 	unsigned char buffer[2 * 3];
 	int nr = 0;
 
+	mutex_lock(&dsp_msg_lock);
+
 	buffer[nr++] = tfa->spkr_select;
 	buffer[nr++] = module_id + 0x80;
 	buffer[nr++] = param_id;
@@ -2693,11 +2720,15 @@ enum tfa98xx_error tfa_dsp_cmd_id_coefs(struct tfa_device *tfa,
 
 	tfa->individual_msg = 1;
 	error = dsp_msg(tfa, nr, (char *)buffer);
-	if (error != TFA98XX_ERROR_OK)
+	if (error != TFA98XX_ERROR_OK) {
+		mutex_unlock(&dsp_msg_lock);
 		return error;
+	}
 
 	/* read the data from the dsp */
 	error = dsp_msg_read(tfa, num_bytes, data);
+
+	mutex_unlock(&dsp_msg_lock);
 
 	return error;
 }
@@ -2715,6 +2746,8 @@ enum tfa98xx_error tfa_dsp_cmd_id_mbdrc_dynamics(struct tfa_device *tfa,
 	unsigned char buffer[2 * 3];
 	int nr = 0;
 
+	mutex_lock(&dsp_msg_lock);
+
 	buffer[nr++] = tfa->spkr_select;
 	buffer[nr++] = module_id + 0x80;
 	buffer[nr++] = param_id;
@@ -2725,11 +2758,15 @@ enum tfa98xx_error tfa_dsp_cmd_id_mbdrc_dynamics(struct tfa_device *tfa,
 
 	tfa->individual_msg = 1;
 	error = dsp_msg(tfa, nr, (char *)buffer);
-	if (error != TFA98XX_ERROR_OK)
+	if (error != TFA98XX_ERROR_OK) {
+		mutex_unlock(&dsp_msg_lock);
 		return error;
+	}
 
 	/* read the data from the dsp */
 	error = dsp_msg_read(tfa, num_bytes, data);
+
+	mutex_unlock(&dsp_msg_lock);
 
 	return error;
 }
