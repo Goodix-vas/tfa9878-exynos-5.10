@@ -1658,6 +1658,7 @@ static enum tfa98xx_error tfa98xx_set_tfadsp_bypass(struct tfa_device *tfa)
 		__func__);
 
 	memset(buf, 0, 3); /* dummy value */
+	tfa->individual_msg = 1;
 	err = tfa_dsp_cmd_id_write(tfa, MODULE_CUSTOM,
 		CUSTOM_PARAM_SET_BYPASS, 3, buf);
 	if (err != TFA98XX_ERROR_OK)
