@@ -190,8 +190,7 @@ static int tfa_get_mtpb(struct tfa_device *tfa)
 	return value;
 }
 
-static enum tfa98xx_error
-tfa_set_mute_nodsp(struct tfa_device *tfa, int mute)
+static enum tfa98xx_error tfa_set_mute_nodsp(struct tfa_device *tfa, int mute)
 {
 	(void)tfa;
 	(void)mute;
@@ -208,8 +207,8 @@ void set_ops_defaults(struct tfa_device_ops *ops)
 	ops->mem_write = tfa98xx_dsp_write_mem_word;
 	if (!ipc_loaded) {
 #if defined(TFA_SET_EXT_INTERNALLY)
-		ops->dsp_msg = tfa_dsp_msg;
-		ops->dsp_msg_read = tfa_dsp_msg_read;
+		ops->dsp_msg = tfa_dsp_msg_rpc;
+		ops->dsp_msg_read = tfa_dsp_msg_read_rpc;
 #else
 		ops->dsp_msg = NULL;
 		ops->dsp_msg_read = NULL;
@@ -1723,7 +1722,7 @@ static int tfa9894_set_swprofile
 
 	/* Set the new value in the hw register */
 #if defined(USE_TFA9894N2)
-	if (is_94_N2_device(tfa))
+	if (tfa_is_94_N2_device(tfa))
 		tfa_set_bf_volatile(tfa, TFA9894N2_BF_SWPROFIL, new_value);
 	else
 		tfa_set_bf_volatile(tfa, TFA9894_BF_SWPROFIL, new_value);
@@ -1737,7 +1736,7 @@ static int tfa9894_set_swprofile
 static int tfa9894_get_swprofile(struct tfa_device *tfa)
 {
 #if defined(USE_TFA9894N2)
-	if (is_94_N2_device(tfa))
+	if (tfa_is_94_N2_device(tfa))
 		return tfa_get_bf(tfa, TFA9894N2_BF_SWPROFIL) - 1;
 	else
 		return tfa_get_bf(tfa, TFA9894_BF_SWPROFIL) - 1;
@@ -1754,7 +1753,7 @@ static int tfa9894_set_swvstep
 
 	/* Set the new value in the hw register */
 #if defined(USE_TFA9894N2)
-	if (is_94_N2_device(tfa))
+	if (tfa_is_94_N2_device(tfa))
 		tfa_set_bf_volatile(tfa, TFA9894N2_BF_SWVSTEP, new_value);
 	else
 		tfa_set_bf_volatile(tfa, TFA9894_BF_SWVSTEP, new_value);
@@ -1768,7 +1767,7 @@ static int tfa9894_set_swvstep
 static int tfa9894_get_swvstep(struct tfa_device *tfa)
 {
 #if defined(USE_TFA9894N2)
-	if (is_94_N2_device(tfa))
+	if (tfa_is_94_N2_device(tfa))
 		return tfa_get_bf(tfa, TFA9894N2_BF_SWVSTEP) - 1;
 	else
 		return tfa_get_bf(tfa, TFA9894_BF_SWVSTEP) - 1;
@@ -1783,7 +1782,7 @@ static int tfa9894_get_mtpb(struct tfa_device *tfa)
 
 	/* Set the new value in the hw register */
 #if defined(USE_TFA9894N2)
-	if (is_94_N2_device(tfa))
+	if (tfa_is_94_N2_device(tfa))
 		value = tfa_get_bf(tfa, TFA9894N2_BF_MTPB);
 	else
 		value = tfa_get_bf(tfa, TFA9894_BF_MTPB);
@@ -1810,7 +1809,7 @@ static enum tfa98xx_error tfa9894_set_osc_powerdown
 		return TFA98XX_ERROR_BAD_PARAMETER;
 
 #if defined(USE_TFA9894N2)
-	if (is_94_N2_device(tfa))
+	if (tfa_is_94_N2_device(tfa))
 		return -tfa_set_bf(tfa,
 			TFA9894N2_BF_MANAOOSC, (uint16_t)state);
 	else
@@ -1829,7 +1828,7 @@ static enum tfa98xx_error tfa9894_faim_protect
 
 	/* 0b = FAIM protection enabled 1b = FAIM protection disabled*/
 #if defined(USE_TFA9894N2)
-	if (is_94_N2_device(tfa))
+	if (tfa_is_94_N2_device(tfa))
 		ret = tfa_set_bf_volatile(tfa,
 			TFA9894N2_BF_OPENMTP, (uint16_t)(status));
 	else
@@ -1852,7 +1851,7 @@ static enum tfa98xx_error tfa9894_specific(struct tfa_device *tfa)
 		return TFA98XX_ERROR_NOT_OPEN;
 #if defined(USE_TFA9894N2)
 	if (tfa->verbose)
-		if (is_94_N2_device(tfa))
+		if (tfa_is_94_N2_device(tfa))
 			pr_debug("check_correct\n");
 #endif
 	/* Unlock keys to write settings */
@@ -1924,7 +1923,7 @@ static enum tfa98xx_error
 tfa9894_set_mute(struct tfa_device *tfa, int mute)
 {
 #if defined(USE_TFA9894N2)
-	if (is_94_N2_device(tfa))
+	if (tfa_is_94_N2_device(tfa))
 		tfa_set_bf(tfa, TFA9894N2_BF_CFSM, (const uint16_t)mute);
 	else
 		tfa_set_bf(tfa, TFA9894_BF_CFSM, (const uint16_t)mute);
@@ -1942,7 +1941,7 @@ static enum tfa98xx_error tfa9894_dsp_system_stable
 
 	/* check CLKS: ready if set */
 #if defined(USE_TFA9894N2)
-	if (is_94_N2_device(tfa))
+	if (tfa_is_94_N2_device(tfa))
 		*ready = tfa_get_bf(tfa, TFA9894N2_BF_CLKS) == 1;
 	else
 		*ready = tfa_get_bf(tfa, TFA9894_BF_CLKS) == 1;

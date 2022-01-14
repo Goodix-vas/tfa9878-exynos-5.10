@@ -1763,7 +1763,8 @@ static int tfa98xx_run_calibration(struct tfa98xx *tfa98xx0)
 
 #if defined(TFA_MIXER_ON_DEVICE)
 		/* force to enable all the devices */
-		tfa->set_active = 1;
+		if (tfa->dev_count <= MAX_CHANNELS)
+			tfa->set_active = 1;
 #endif
 
 		/* force to mute amplifier to flush buffer */
@@ -2102,7 +2103,7 @@ static int tfa98xx_set_vstep(struct snd_kcontrol *kcontrol,
 #endif /* TFA_RAMPDOWN_BEFORE_MUTE */
 	list_for_each_entry(tfa98xx, &tfa98xx_device_list, list) {
 		mutex_lock(&tfa98xx->dsp_lock);
-		show_current_state(tfa98xx->tfa);
+		tfa_show_current_state(tfa98xx->tfa);
 		tfa_dev_set_state(tfa98xx->tfa, TFA_STATE_MUTE, 0);
 		mutex_unlock(&tfa98xx->dsp_lock);
 	}
@@ -2245,7 +2246,7 @@ static int tfa98xx_set_profile(struct snd_kcontrol *kcontrol,
 	int err = 0;
 	int change = 0;
 	int new_profile;
-	int prof_idx;
+	int prof_idx, cur_prof_idx;
 	int profile_count = tfa98xx_mixer_profiles;
 	int profile = tfa98xx_mixer_profile;
 #if defined(TFA_MUTE_DURING_SWITCHING_PROFILE)
@@ -2268,13 +2269,17 @@ static int tfa98xx_set_profile(struct snd_kcontrol *kcontrol,
 
 	/* get the container profile for the requested sample rate */
 	prof_idx = get_profile_id_for_sr(new_profile, tfa98xx->rate);
-	if (prof_idx < 0) {
-		pr_err("tfa98xx: sample rate [%d] not supported for this mixer profile [%d].\n",
-			tfa98xx->rate, new_profile);
+	cur_prof_idx = get_profile_id_for_sr(profile, tfa98xx->rate);
+	if (prof_idx < 0 || cur_prof_idx < 0) {
+		pr_err("%s: sample rate [%d] not supported for this mixer profile [%d -> %d]\n",
+			__func__, tfa98xx->rate, profile, new_profile);
 		return 0;
 	}
-	pr_info("%s: selected container profile [%d]\n",
-		__func__, prof_idx);
+	pr_info("%s: selected container profile [%d -> %d]\n",
+		__func__, cur_prof_idx, prof_idx);
+	pr_debug("%s: switch profile [%s -> %s]\n", __func__,
+		_tfa_cont_profile_name(tfa98xx, cur_prof_idx),
+		_tfa_cont_profile_name(tfa98xx, prof_idx));
 
 	/* update mixer profile */
 	tfa98xx_mixer_profile = new_profile;
@@ -2305,7 +2310,7 @@ static int tfa98xx_set_profile(struct snd_kcontrol *kcontrol,
 #endif /* TFA_RAMPDOWN_BEFORE_MUTE */
 	list_for_each_entry(tfa98xx, &tfa98xx_device_list, list) {
 		mutex_lock(&tfa98xx->dsp_lock);
-		show_current_state(tfa98xx->tfa);
+		tfa_show_current_state(tfa98xx->tfa);
 		tfa_dev_set_state(tfa98xx->tfa, TFA_STATE_MUTE, 0);
 		mutex_unlock(&tfa98xx->dsp_lock);
 	}
@@ -2324,6 +2329,12 @@ static int tfa98xx_set_profile(struct snd_kcontrol *kcontrol,
 		tfa98xx_dsp_system_stable(tfa98xx->tfa, &ready);
 		pr_debug("%s: device is %sready\n", __func__,
 			ready ? "" : "not ");
+		if (tfa_cont_is_standby_profile(tfa98xx->tfa,
+			cur_prof_idx)) {
+			pr_info("Force to start at exiting from standby: [%d -> %d]\n",
+				cur_prof_idx, prof_idx);
+			ready = 1;
+		}
 #else
 		/* Set ready by force, for selective channel control */
 		ready = 1;
@@ -4126,10 +4137,11 @@ static void tfa98xx_container_loaded
 		tfa_set_ipc_loaded(1);
 #endif /* TFA_SET_EXT_INTERNALLY */
 	} else {
+		/* DSP solution: non-probus */
 		tfa98xx->tfa->dev_ops.dsp_msg
-			= (dsp_send_message_t)tfa_dsp_msg;
+			= (dsp_send_message_t)tfa_dsp_msg_rpc;
 		tfa98xx->tfa->dev_ops.dsp_msg_read
-			= (dsp_read_message_t)tfa_dsp_msg_read;
+			= (dsp_read_message_t)tfa_dsp_msg_read_rpc;
 		tfa_set_ipc_loaded(1);
 	}
 
@@ -4262,13 +4274,26 @@ static void tfa98xx_container_loaded
 
 static int tfa98xx_load_container(struct tfa98xx *tfa98xx)
 {
+	int tries = 0, ret;
+
 	mutex_lock(&probe_lock);
 	tfa98xx->dsp_fw_state = TFA98XX_DSP_FW_PENDING;
 	mutex_unlock(&probe_lock);
 
-	return request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG,
-		fw_name, tfa98xx->dev, GFP_KERNEL,
-		tfa98xx, tfa98xx_container_loaded);
+	do {
+		ret = request_firmware_nowait(THIS_MODULE,
+			FW_ACTION_HOTPLUG,
+			fw_name, tfa98xx->dev, GFP_KERNEL,
+			tfa98xx, tfa98xx_container_loaded);
+
+		if (tfa98xx->dsp_fw_state == TFA98XX_DSP_FW_OK)
+			break;
+
+		msleep_interruptible(100);
+		tries++;
+	} while (tries > TFA98XX_LOADFW_NTRIES);
+
+	return ret;
 }
 
 #if (defined(USE_TFA9891) || defined(USE_TFA9912))
@@ -4325,7 +4350,7 @@ static void tfa98xx_monitor(struct work_struct *work)
 {
 	struct tfa98xx *tfa98xx;
 	enum tfa98xx_error error = TFA98XX_ERROR_OK;
-	int handle = -1;
+	int handle = -1, is_active = 0;
 	unsigned int val;
 	int ret;
 
@@ -4339,19 +4364,16 @@ static void tfa98xx_monitor(struct work_struct *work)
 
 	if (tfa98xx->tfa->active_count == -1)
 		tfa_set_active_handle(tfa98xx->tfa, tfa98xx->profile);
-	handle = tfa98xx->tfa->active_handle;
 
-	if (handle != -1) {
-		pr_info("%s: profile = %d, active handle [%s]\n",
-			__func__, tfa98xx->profile,
-			tfa_cont_device_name(tfa98xx->tfa->cnt,
-			handle));
-		if (handle != tfa98xx->tfa->dev_idx)
-			goto tfa_monitor_exit;
-	} else {
-		pr_info("%s: profile = %d, all active\n",
-			__func__, tfa98xx->profile);
+	is_active = tfa_is_active_device(tfa98xx->tfa);
+	if (is_active) {
 		handle = tfa98xx->tfa->dev_idx;
+		pr_info("%s: profile = %d, active handle [%s]: %d\n",
+			__func__, tfa98xx->profile,
+			tfa_cont_device_name(tfa98xx->tfa->cnt, handle),
+			tfa98xx->tfa->active_handle);
+	} else {
+		goto tfa_monitor_exit;
 	}
 
 	/* Check for tap-detection - bypass monitor if it is active */
@@ -4438,7 +4460,6 @@ static void tfa98xx_dsp_init(struct tfa98xx *tfa98xx)
 	bool reschedule = false;
 	bool sync = false;
 	bool do_sync;
-	int active_handle = -1;
 
 	if (tfa98xx->dsp_fw_state != TFA98XX_DSP_FW_OK) {
 		pr_debug("Skipping tfa_dev_start (no FW: %d)\n",
@@ -4571,7 +4592,6 @@ static void tfa98xx_dsp_init(struct tfa98xx *tfa98xx)
 
 	if (tfa98xx->tfa->active_count == -1)
 		tfa_set_active_handle(tfa98xx->tfa, tfa98xx->profile);
-	active_handle = tfa98xx->tfa->active_handle;
 
 	/* check if all devices have started */
 	mutex_lock(&tfa98xx_mutex);
@@ -4595,20 +4615,21 @@ static void tfa98xx_dsp_init(struct tfa98xx *tfa98xx)
 			tfa98xx_set_dsp_configured(tfa98xx);
 			mutex_unlock(&tfa98xx->dsp_lock);
 
-			if ((active_handle != -1)
-				&& (active_handle != ntfa->dev_idx))
+			if (!tfa_is_active_device(ntfa))
 				continue;
 
-			pr_info("%s: profile = %d, active handle [%s]\n",
+			pr_info("%s: profile = %d, active handle [%s]: %d\n",
 				__func__, tfa98xx->profile,
 				tfa_cont_device_name(ntfa->cnt,
-				ntfa->dev_idx));
+				ntfa->dev_idx),
+				ntfa->active_handle);
 
 			if (failed) {
 				tfa_handle_damaged_speakers(ntfa);
 				continue;
 			}
 
+			mutex_lock(&tfa98xx->dsp_lock);
 #if defined(TFA_TDMSPKG_CONTROL)
 			if (ntfa->spkgain != -1) {
 				pr_info("%s: set speaker gain 0x%x\n",
@@ -4622,7 +4643,6 @@ static void tfa98xx_dsp_init(struct tfa98xx *tfa98xx)
 			tfa_dev_set_state(ntfa,
 				TFA_STATE_UNMUTE, 0);
 
-			mutex_lock(&tfa98xx->dsp_lock);
 			/*
 			 * start monitor thread to check IC status bit
 			 * periodically, and re-init IC to recover if
@@ -5493,7 +5513,7 @@ static int tfa98xx_parse_dummy_cal_dt(struct device *dev,
 	err = of_property_read_u32(np, "dummy-cal", &value);
 	if (err < 0) {
 		tfa98xx->tfa->dummy_cal = DUMMY_CALIBRATION_DATA;
-		return -1;
+		return TFA_NOT_FOUND;
 	}
 
 	if (value < MIN_CALIBRATION_DATA)
