@@ -4274,12 +4274,15 @@ static int tfa98xx_load_container(struct tfa98xx *tfa98xx)
 			fw_name, tfa98xx->dev, GFP_KERNEL,
 			tfa98xx, tfa98xx_container_loaded);
 
+		/* wait until driver completes loading */
+		msleep_interruptible(20);
 		if (tfa98xx->dsp_fw_state == TFA98XX_DSP_FW_OK)
 			break;
 
-		msleep_interruptible(100);
+		msleep_interruptible(80);
 		tries++;
-	} while (tries < TFA98XX_LOADFW_NTRIES);
+	} while (tries < TFA98XX_LOADFW_NTRIES
+		&& tfa98xx->dsp_fw_state != TFA98XX_DSP_FW_OK);
 
 	return ret;
 }
