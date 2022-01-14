@@ -101,7 +101,8 @@ static void tfa_wait_cal_work(struct work_struct *work)
 
 		if (ntfa == NULL)
 			continue;
-		if (!tfa_is_active_device(ntfa))
+		if ((ntfa->active_handle != -1)
+			&& (ntfa->active_handle != i))
 			continue;
 
 		if (cal_err != TFA98XX_ERROR_OK
@@ -134,7 +135,8 @@ void tfa_handle_damaged_speakers(struct tfa_device *tfa)
 
 	tfa->is_configured = -1;
 
-	if (!tfa_is_active_device(tfa))
+	if ((tfa->active_handle != -1)
+		&& (tfa->active_handle != tfa->dev_idx))
 		return;
 
 #if defined(TFA_BYPASS_AT_START_FAILURE)
@@ -830,30 +832,6 @@ enum tfa98xx_error tfa_supported_speakers(struct tfa_device *tfa,
 }
 
 /*
- * tfa_get_channel_from_dev_idx
- * returns the channel of TDMSPKS for the device of given index
- */
-int tfa_get_channel_from_dev_idx(struct tfa_device *tfa, int dev_idx)
-{
-	int channel = TFA_NOT_FOUND;
-
-	if (tfa == NULL) {
-		/* acive channel is -1 @ active_handle == -1 */
-		if (dev_idx < 0 || dev_idx >= MAX_HANDLES)
-			return TFA_NOT_FOUND; /* invalid device index */
-
-		tfa = tfa98xx_get_tfa_device_from_index(dev_idx);
-		if (tfa == NULL)
-			return TFA_NOT_FOUND; /* unable to find device */
-	}
-
-	channel = (int)tfa98xx_get_cnt_bitfield(tfa,
-		TFA7x_FAM(tfa, TDMSPKS)) % MAX_CHANNELS;
-
-	return channel;
-}
-
-/*
  * tfa98xx_supported_saam
  * returns the supportedspeaker as microphone feature
  */
@@ -950,8 +928,8 @@ enum tfa98xx_error tfa98xx_compare_features(struct tfa_device *tfa,
 	tfa98xx_convert_bytes2data(sizeof(bytes), bytes, &features_from_MTP[1]);
 
 	/* check if feature bits from MTP match feature bits from cnt file: */
-	tfa_get_hw_features_from_cnt(tfa, &features_from_cnt[0]);
-	tfa_get_sw_features_from_cnt(tfa, &features_from_cnt[1]);
+	get_hw_features_from_cnt(tfa, &features_from_cnt[0]);
+	get_sw_features_from_cnt(tfa, &features_from_cnt[1]);
 
 	return error;
 }
@@ -1760,7 +1738,7 @@ void tfa98xx_convert_data2bytes(int num_data, const int data[],
  * depending on framework to be up and running
  * need base i2c of memaccess (tfa1=0x70/tfa2=0x90)
  *
- * write dsp messages in function tfa_dsp_msg_rpc()
+ * write dsp messages in function tfa_dsp_msg()
  * note the 'old' write_parameter() was more efficient
  * because all i2c was in one burst transaction
  */
@@ -1880,7 +1858,7 @@ enum tfa98xx_error tfa_dsp_msg_write_id(struct tfa_device *tfa,
 }
 
 /*
- * status function used by tfa_dsp_msg_rpc() to retrieve command/msg status:
+ * status function used by tfa_dsp_msg() to retrieve command/msg status:
  * return a <0 status of the DSP did not ACK.
  */
 enum tfa98xx_error tfa_dsp_msg_status(struct tfa_device *tfa, int *p_rpc_status)
@@ -2343,7 +2321,7 @@ enum tfa98xx_error mem_write(struct tfa_device *tfa,
  * functions will return immediately and do not not wait for DSP response.
  */
 #define MAX_WORDS (300)
-int tfa_dsp_msg_rpc(void *data, int length, const char *buf)
+int tfa_dsp_msg(void *data, int length, const char *buf)
 {
 	enum tfa98xx_error error;
 	struct tfa_device *tfa = (struct tfa_device *)data;
@@ -2385,7 +2363,7 @@ int tfa_dsp_msg_rpc(void *data, int length, const char *buf)
 /*
  * Read a message from dsp
  */
-int tfa_dsp_msg_read_rpc(void *data, int length, unsigned char *bytes)
+int tfa_dsp_msg_read(void *data, int length, unsigned char *bytes)
 {
 	enum tfa98xx_error error = TFA98XX_ERROR_OK;
 	struct tfa_device *tfa = (struct tfa_device *)data;
@@ -2736,19 +2714,9 @@ enum tfa98xx_error tfa_dsp_cmd_id_coefs(struct tfa_device *tfa,
 	buffer[nr++] = module_id + 0x80;
 	buffer[nr++] = param_id;
 
-#if defined(TFA_VOID_APIV_IN_FILE)
 	buffer[nr++] = 0;
 	buffer[nr++] = 0;
 	buffer[nr++] = 0;
-#else
-	if (tfa->fw_itf_ver[0] == 0xff
-		|| (tfa->fw_itf_ver[0] == TFA_API_SBFW_BIG_M_88
-		|| tfa->fw_itf_ver[1] < TFA_API_SBFW_8_09_00_SMALL_M)) {
-		buffer[nr++] = 0;
-		buffer[nr++] = 0;
-		buffer[nr++] = 0;
-	}
-#endif /* TFA_VOID_APIV_IN_FILE */
 
 	tfa->individual_msg = 1;
 	error = dsp_msg(tfa, nr, (char *)buffer);
@@ -2842,7 +2810,7 @@ tfa98xx_dsp_get_hw_feature_bits(struct tfa_device *tfa, int *features)
 
 			tfa98xx_dsp_system_stable(tfa, &status);
 			if (!status) {
-				tfa_get_hw_features_from_cnt(tfa, features);
+				get_hw_features_from_cnt(tfa, features);
 				/* skip reading MTP: */
 				return (*features == -1)
 					? TFA98XX_ERROR_FAIL : TFA98XX_ERROR_OK;
@@ -2878,7 +2846,7 @@ tfa98xx_dsp_get_sw_feature_bits(struct tfa_device *tfa, int features[2])
 
 			tfa98xx_dsp_system_stable(tfa, &status);
 			if (!status) {
-				tfa_get_sw_features_from_cnt(tfa, features);
+				get_sw_features_from_cnt(tfa, features);
 				/* skip reading MTP: */
 				return (features[0] == -1)
 					? TFA98XX_ERROR_FAIL : TFA98XX_ERROR_OK;
@@ -2940,14 +2908,6 @@ tfa98xx_dsp_support_drc(struct tfa_device *tfa, int *pb_support_drc)
 		return TFA98XX_ERROR_NOT_OPEN;
 
 	if (tfa->support_drc != SUPPORT_NOT_SET) {
-#if !defined(TFA_VOID_APIV_IN_FILE)
-		if (tfa->tfa_family == 2
-			&& tfa->fw_itf_ver[0] == TFA_API_SBFW_PO_BIG_M) {
-			pr_debug("%s: DRC unsupported in FW API for PO\n",
-				__func__);
-			tfa->support_drc = SUPPORT_NO;
-		}
-#endif
 		*pb_support_drc = (tfa->support_drc == SUPPORT_YES);
 	} else {
 		int feature_bits[2];
@@ -3381,42 +3341,31 @@ tfa98xx_aec_output(struct tfa_device *tfa, int enable)
  * Device manager status information, man_state from TFA9888_N1B_I2C_regmap_V12
  */
 #if defined(USE_TFA9894N2)
-int tfa_is_94_N2_device(struct tfa_device *tfa)
+int is_94_N2_device(struct tfa_device *tfa)
 {
 	return ((((tfa->rev) & 0xff) == 0x94)
 		&& (((tfa->rev >> 8) & 0xff) > 0x1a));
 }
 #endif
 
-int tfa_get_manstate(struct tfa_device *tfa)
+enum tfa98xx_error show_current_state(struct tfa_device *tfa)
 {
+	enum tfa98xx_error err = TFA98XX_ERROR_OK;
 	int manstate = -1;
 
-	if (tfa->tfa_family == 2) {
+	if (tfa->tfa_family == 2 && tfa->verbose) {
 #if defined(USE_TFA9894N2)
-		if (tfa_is_94_N2_device(tfa))
+		if (is_94_N2_device(tfa))
 			manstate = tfa_get_bf(tfa, TFA9894N2_BF_MANSTATE);
 		else
 			manstate = TFA_GET_BF(tfa, MANSTATE);
 #else
 		manstate = TFA_GET_BF(tfa, MANSTATE);
 #endif
-	}
-
-	return manstate;
-}
-
-enum tfa98xx_error tfa_show_current_state(struct tfa_device *tfa)
-{
-	enum tfa98xx_error err = TFA98XX_ERROR_OK;
-	int manstate = -1;
-
-	if (tfa->tfa_family == 2 && tfa->verbose) {
-		manstate = tfa_get_manstate(tfa);
 		if (manstate < 0)
 			return -manstate;
 
-		pr_info("%s: tfa (dev %d): current HW manager state: %d\n",
+		pr_debug("%s: tfa (dev %d): current HW manager state: %d\n",
 			__func__, tfa->dev_idx, manstate);
 
 		switch (manstate) {
@@ -3482,14 +3431,10 @@ enum tfa98xx_error tfa_show_current_state(struct tfa_device *tfa)
 #define VERSION_BIG_M_INDEX 16
 #define VERSION_SMALL_M_FILTER 0x00ff00
 #define VERSION_SMALL_M_INDEX 8
-#define VERSION_BIG_U_FILTER 0x0000f8
-#define VERSION_BIG_U_INDEX 3
-#define VERSION_SMALL_U_FILTER 0x000007
+#define VERSION_BIG_U_FILTER 0x0000c0
+#define VERSION_BIG_U_INDEX 6
+#define VERSION_SMALL_U_FILTER 0x00003f
 #define VERSION_SMALL_U_INDEX 0
-#define VERSION_BIG_U_FILTER_OLD 0x0000c0
-#define VERSION_BIG_U_INDEX_OLD 6
-#define VERSION_SMALL_U_FILTER_OLD 0x00003f
-#define VERSION_SMALL_U_INDEX_OLD 0
 
 enum tfa98xx_error tfa_get_fw_api_version(struct tfa_device *tfa,
 	unsigned char *pfw_version)
@@ -3510,7 +3455,7 @@ enum tfa98xx_error tfa_get_fw_api_version(struct tfa_device *tfa,
 		err = mem_read(tfa, FW_VAR_API_VERSION,
 			1, (int *)buf);
 		if (err) {
-			pr_debug("%s Error: Unable to get FW API ver from DSP\n",
+			pr_debug("%s Error: Unable to get API Version from DSP\n",
 				__func__);
 			return err;
 		}
@@ -3534,45 +3479,19 @@ enum tfa98xx_error tfa_get_fw_api_version(struct tfa_device *tfa,
 
 	tfa98xx_convert_bytes2data(res_len, buf, data);
 #if defined(TFA_CUSTOM_FORMAT_AT_RESPONSE)
+	memcpy(pfw_version, buf + 3, 3);
 	vitf = data[1];
 #else
+	memcpy(pfw_version, buf, 3);
 	vitf = data[0];
 #endif /* TFA_CUSTOM_FORMAT_AT_RESPONSE */
 
-	pfw_version[0] = (vitf & VERSION_BIG_M_FILTER)
-		>> VERSION_BIG_M_INDEX;
-	pfw_version[1] = (vitf & VERSION_SMALL_M_FILTER)
-		>> VERSION_SMALL_M_INDEX;
-	if (pfw_version[0] != TFA_API_SBFW_BIG_M_88
-		&& pfw_version[1] >= TFA_API_SBFW_9_00_00_SMALL_M) {
-		pfw_version[2] = (vitf & VERSION_BIG_U_FILTER)
-			>> VERSION_BIG_U_INDEX;
-		pfw_version[3] = (vitf & VERSION_SMALL_U_FILTER)
-			>> VERSION_SMALL_U_INDEX;
-	} else {
-		pfw_version[2] = (vitf & VERSION_BIG_U_FILTER_OLD)
-			>> VERSION_BIG_U_INDEX_OLD;
-		pfw_version[3] = (vitf & VERSION_SMALL_U_FILTER_OLD)
-			>> VERSION_SMALL_U_INDEX_OLD;
-	}
-
-	/* Mono configuration */
-	/*
-	 * Workaround for FW 8.9.x (FW API x.31.y.z).
-	 * Firmware cannot return the 4th field (mono/stereo),
-	 * as it requires a certain set of messages
-	 * before it can detect a mono/stereo configuration.
-	 */
-	if (tfa->dev_count == 1) {
-		if ((pfw_version[0] == TFA_API_SBFW_8_09_00_BIG_M
-			&& pfw_version[1] >= TFA_API_SBFW_8_09_00_SMALL_M)
-			|| pfw_version[0] == TFA_API_SBFW_PO_BIG_M)
-			pfw_version[3] = 1;
-	}
-
 	pr_info("%s: fw api (itf) version %d.%d.%d.%d\n",
-		__func__, pfw_version[0], pfw_version[1],
-		pfw_version[2], pfw_version[3]);
+		__func__,
+		(vitf & VERSION_BIG_M_FILTER) >> VERSION_BIG_M_INDEX,
+		(vitf & VERSION_SMALL_M_FILTER) >> VERSION_SMALL_M_INDEX,
+		(vitf & VERSION_BIG_U_FILTER) >> VERSION_BIG_U_INDEX,
+		(vitf & VERSION_SMALL_U_FILTER) >> VERSION_SMALL_U_INDEX);
 
 	return err;
 }
@@ -3658,8 +3577,7 @@ enum tfa98xx_error tfa_set_calibration_values(struct tfa_device *tfa)
 {
 	enum tfa98xx_error err = TFA98XX_ERROR_OK;
 	unsigned char bytes[2 * 3] = {0};
-	unsigned short value = 0;
-	int active_channel = -1, channel = 0;
+	unsigned short value = 0, channel = 0;
 	int mtpex = 0;
 	static int need_cal, is_bypass, is_damaged;
 	struct tfa_device *ntfa;
@@ -3683,7 +3601,8 @@ enum tfa98xx_error tfa_set_calibration_values(struct tfa_device *tfa)
 
 			if (ntfa == NULL)
 				continue;
-			if (!tfa_is_active_device(ntfa))
+			if ((ntfa->active_handle != -1)
+				&& (ntfa->active_handle != i))
 				continue;
 
 			mtpex = tfa_dev_mtp_get(ntfa, TFA_MTP_EX);
@@ -3731,7 +3650,8 @@ enum tfa98xx_error tfa_set_calibration_values(struct tfa_device *tfa)
 	}
 
 	mtpex = tfa_dev_mtp_get(tfa, TFA_MTP_EX);
-	channel = tfa_get_channel_from_dev_idx(tfa, -1);
+	channel = tfa98xx_get_cnt_bitfield(tfa,
+		TFA7x_FAM(tfa, TDMSPKS)) % MAX_CHANNELS;
 	pr_info("%s: dev %d, channel %d, MTPEX=%d\n",
 		__func__, tfa->dev_idx, channel, mtpex);
 
@@ -3858,20 +3778,29 @@ enum tfa98xx_error tfa_set_calibration_values(struct tfa_device *tfa)
 	if (need_cal == 0) {
 		pr_info("%s: last dev %d - MTPEX=%d\n",
 			__func__, tfa->dev_idx, mtpex);
-
-		if (tfa->dev_count == 1) /* mono: duplicate channel 0 */
-			active_channel = 0;
-		else if (tfa->dev_count >= 2) /* stereo and beyond */
-			active_channel = tfa_get_channel_from_dev_idx(NULL,
-				tfa->active_handle);
-
-		if (active_channel != -1) {
-			pr_info("%s: copy cal from active dev %d (channel %d)\n",
-				__func__, tfa->active_handle,
-				active_channel);
-			for (i = 0; i < MAX_CHANNELS; i++)
-				dsp_cal_value[i]
-					= dsp_cal_value[active_channel];
+		if (tfa->dev_count == 1) { /* mono */
+			dsp_cal_value[1] = dsp_cal_value[0];
+		} else if (tfa->dev_count == 2) { /* stereo */
+			switch (tfa->active_handle) {
+			case 0:
+				pr_info("%s: copy cal from dev 0 to dev 1\n",
+					__func__);
+				dsp_cal_value[1] = dsp_cal_value[0];
+				break;
+			case 1:
+				pr_info("%s: copy cal from dev 1 to dev 0\n",
+					__func__);
+				dsp_cal_value[0] = dsp_cal_value[1];
+				break;
+			case -1:
+				/* individually configured */
+			default:
+				/* wrong handle */
+				break;
+			}
+		} else {
+			pr_err("%s: more than 2 devices were selected (%d devices)\n",
+				__func__, tfa->dev_count);
 		}
 
 		/* We have to copy it for both channels. Even when MONO! */
@@ -3983,7 +3912,8 @@ enum tfa98xx_error tfa_set_calibration_values_once(struct tfa_device *tfa)
 
 			if (ntfa == NULL)
 				continue;
-			if (!tfa_is_active_device(ntfa))
+			if ((ntfa->active_handle != -1)
+				&& (ntfa->active_handle != i))
 				continue;
 
 			ntfa->is_bypass = tfa->is_bypass;
@@ -4544,7 +4474,7 @@ tfa_run_startup_exit:
 	}
 #endif
 
-	err = tfa_show_current_state(tfa);
+	err = show_current_state(tfa);
 
 	return err;
 }
@@ -4840,7 +4770,8 @@ enum tfa98xx_error tfa_wait_cal(struct tfa_device *tfa)
 
 			if (ntfa == NULL)
 				continue;
-			if (!tfa_is_active_device(ntfa))
+			if ((ntfa->active_handle != -1)
+				&& (ntfa->active_handle != i))
 				continue;
 
 #if defined(USE_TFA9874) || defined(USE_TFA9878) || defined(USE_TFA9894)
@@ -4861,7 +4792,8 @@ enum tfa98xx_error tfa_wait_cal(struct tfa_device *tfa)
 
 		if (ntfa == NULL)
 			continue;
-		if (!tfa_is_active_device(ntfa))
+		if ((ntfa->active_handle != -1)
+			&& (ntfa->active_handle != i))
 			continue;
 
 #if !defined(TFA_WAIT_CAL_IN_WORKQUEUE)
@@ -4910,7 +4842,8 @@ enum tfa98xx_error tfa_wait_cal(struct tfa_device *tfa)
 
 		if (ntfa == NULL)
 			continue;
-		if (!tfa_is_active_device(ntfa))
+		if ((ntfa->active_handle != -1)
+			&& (ntfa->active_handle != i))
 			continue;
 
 		tfa_set_status_flag(ntfa, TFA_SET_DEVICE, 1);
@@ -5347,22 +5280,6 @@ void tfa_reset_active_handle(struct tfa_device *tfa)
 	}
 }
 
-int tfa_is_active_device(struct tfa_device *tfa)
-{
-	int is_active = 0;
-
-	/* if not initialized, assume all active */
-	if (tfa->active_count == -1)
-		return 1;
-	if (tfa->active_handle == -1)
-		return 1;
-
-	if (tfa->active_handle == tfa->dev_idx)
-		is_active = 1;
-
-	return is_active;
-}
-
 /*
  * tfa_dev_start will only do the basics:
  * Going from powerdown to operating or a profile switch.
@@ -5378,6 +5295,7 @@ enum tfa_error tfa_dev_start(struct tfa_device *tfa,
 	static int tfa98xx_log_start_cnt;
 	int forced = 0;
 	int tfa_state_before, tfa_state;
+	char prof_name[MAX_CONTROL_NAME] = {0};
 	int cal_ready = 1;
 
 	tfa98xx_log_start_cnt++;
@@ -5401,32 +5319,39 @@ enum tfa_error tfa_dev_start(struct tfa_device *tfa,
 		tfa_set_active_handle(tfa, next_profile);
 	}
 
-	if (tfa_is_active_device(tfa)) {
-		pr_info("%s: active handle [%s]: %d\n", __func__,
-			tfa_cont_device_name(tfa->cnt, tfa->dev_idx),
-			tfa->active_handle);
-	} else {
-		pr_info("%s: keep profile %d instead of changing to %d\n",
-			__func__, tfa_dev_get_swprof(tfa),
-			next_profile);
+	if (tfa->active_handle != -1) {
+		pr_info("%s: active handle [%s]", __func__,
+			tfa_cont_device_name(tfa->cnt, tfa->active_handle));
 
-		pr_info("%s: stop unused dev %d, by force\n",
-			__func__, tfa->dev_idx);
-		tfa_dev_stop(tfa); /* stop inactive handle */
+		if (tfa->dev_idx != tfa->active_handle) {
+			pr_info("%s: keep profile %d instead of changing to %d\n",
+				__func__, tfa_dev_get_swprof(tfa),
+				next_profile);
+
+			pr_info("%s: stop unused dev %d, by force\n",
+				__func__, tfa->dev_idx);
+			err = (enum tfa98xx_error)
+				tfa_dev_stop(tfa); /* stop inactive handle */
 
 #if defined(TFA_USE_DUMMY_CAL)
-		/* skip resetting MTPEX unless all are active */
-		if (tfa->is_probus_device)
-			tfa->reset_mtpex = 0;
+			/* skip resetting MTPEX unless all are active */
+			if (tfa->is_probus_device)
+				tfa->reset_mtpex = 0;
 #endif
 
-		goto tfa_dev_start_exit;
+			goto tfa_dev_start_exit;
+		}
+	} else {
+		pr_info("%s: all the handles active [%s]", __func__,
+			tfa_cont_device_name(tfa->cnt, tfa->dev_idx));
 	}
 
 	/* If the profile contains the .standby suffix go
 	 * to powerdown else we should be in operating state
 	 */
-	if (tfa_cont_is_standby_profile(tfa, next_profile)) {
+	strlcpy(prof_name, tfa_cont_profile_name(tfa->cnt,
+		tfa->dev_idx, next_profile), MAX_CONTROL_NAME);
+	if (strnstr(prof_name, ".standby", strlen(prof_name)) != NULL) {
 		tfa_dev_set_swprof(tfa, (unsigned short)next_profile);
 		tfa_dev_set_swvstep(tfa, (unsigned short)vstep);
 
@@ -5510,7 +5435,7 @@ enum tfa_error tfa_dev_start(struct tfa_device *tfa,
 	pr_debug("Starting device [%s]\n",
 		tfa_cont_device_name(tfa->cnt, tfa->dev_idx));
 
-	err = tfa_show_current_state(tfa);
+	err = show_current_state(tfa);
 
 	if (tfa->tfa_family == 1) { /* TODO move this to ini file */
 		/* Enable I2S output on TFA1 devices without TDM */
@@ -5547,13 +5472,6 @@ enum tfa_error tfa_dev_start(struct tfa_device *tfa,
 			tfa_cont_device_name(tfa->cnt, tfa->dev_idx),
 			tfa_cont_profile_name(tfa->cnt, tfa->dev_idx,
 			next_profile));
-
-		if (tfa_cont_is_standby_profile(tfa, next_profile)) {
-			pr_info("%s: Skip powering on, in standby profile!\n",
-				__func__);
-			mutex_unlock(&dev_lock);
-			goto tfa_dev_start_exit;
-		}
 
 		/* Make sure internal oscillator is running
 		 * for DSP devices (non-dsp and max1 this is no-op)
@@ -5632,7 +5550,7 @@ enum tfa_error tfa_dev_start(struct tfa_device *tfa,
 #endif
 
 tfa_dev_start_exit:
-	tfa_show_current_state(tfa);
+	show_current_state(tfa);
 
 	/* set ready for next action, once the current one completes */
 	mutex_lock(&dev_lock);
@@ -5649,6 +5567,7 @@ enum tfa_error tfa_dev_switch_profile(struct tfa_device *tfa,
 {
 	enum tfa98xx_error err = TFA98XX_ERROR_OK;
 	int active_profile = -1;
+	char prof_name[MAX_CONTROL_NAME] = {0};
 
 #if defined(TFA_USE_WAITQUEUE_SEQ)
 	if (tfa->ext_dsp == 1) {
@@ -5690,20 +5609,21 @@ enum tfa_error tfa_dev_switch_profile(struct tfa_device *tfa,
 	/* If the profile contains the .standby suffix go
 	 * to powerdown else we should be in operating state
 	 */
-	if (tfa_cont_is_standby_profile(tfa, next_profile)) {
+	strlcpy(prof_name, tfa_cont_profile_name(tfa->cnt,
+		tfa->dev_idx, next_profile), MAX_CONTROL_NAME);
+	if (strnstr(prof_name, ".standby", strlen(prof_name)) != NULL) {
 		tfa_dev_set_swprof(tfa, (unsigned short)next_profile);
 		tfa_dev_set_swvstep(tfa, (unsigned short)vstep);
 
 		pr_info("%s: skip switching dev %d for standby profile\n",
 			__func__, tfa->dev_idx);
-		err = tfa_dev_stop(tfa);
 
 		return err;
 	} else if (TFA_GET_BF(tfa, PWDN) != 0) {
 		err = tfa98xx_powerdown(tfa, 0);
 	}
 
-	err = tfa_show_current_state(tfa);
+	err = show_current_state(tfa);
 
 	tfa->vstep = tfa_dev_get_swvstep(tfa);
 	if ((TFA_GET_BF(tfa, CFE) != 0)
@@ -6038,7 +5958,15 @@ int tfa_reset(struct tfa_device *tfa)
 			for (retry_cnt = 0;
 				retry_cnt < TFA98XX_WAITRESULT_NTRIES;
 				retry_cnt++) {
-				state = tfa_get_manstate(tfa);
+#if defined(USE_TFA9894N2)
+				if (is_94_N2_device(tfa))
+					state = tfa_get_bf(tfa,
+						TFA9894N2_BF_MANSTATE);
+				else
+					state = TFA_GET_BF(tfa, MANSTATE);
+#else
+				state = TFA_GET_BF(tfa, MANSTATE);
+#endif
 				if (state < 0)
 					return err;
 
@@ -6184,7 +6112,7 @@ static enum tfa98xx_error tfa_process_re25(struct tfa_device *tfa)
 	int data[2];
 	int nr_bytes, i, spkr_count = 0, cal_idx = 0;
 	int scaled_data;
-	int channel;
+	unsigned int channel;
 #if defined(WRITE_CALIBRATION_DATA_TO_MTP)
 	int tries = 0;
 	int readback = -1;
@@ -6207,7 +6135,8 @@ static enum tfa98xx_error tfa_process_re25(struct tfa_device *tfa)
 #else
 	nr_bytes = spkr_count * 3;
 #endif /* TFA_CUSTOM_FORMAT_AT_RESPONSE */
-	channel = tfa_get_channel_from_dev_idx(tfa, -1);
+	channel = tfa98xx_get_cnt_bitfield(tfa,
+		TFA7x_FAM(tfa, TDMSPKS)) % MAX_CHANNELS;
 	error = tfa_dsp_cmd_id_write_read(tfa,
 		MODULE_SPEAKERBOOST, SB_PARAM_GET_RE25C, nr_bytes, bytes);
 	if (error == TFA98XX_ERROR_OK) {
@@ -7212,7 +7141,15 @@ enum tfa_state tfa_dev_get_state(struct tfa_device *tfa)
 		else if (!cold && TFA_GET_BF(tfa, SWS))
 			tfa->state = TFA_STATE_OPERATING;
 	} else /* family 2 */ {
-		manstate = tfa_get_manstate(tfa);
+#if defined(USE_TFA9894N2)
+		if (is_94_N2_device(tfa))
+			manstate = tfa_get_bf(tfa, TFA9894N2_BF_MANSTATE);
+		else
+			manstate = TFA_GET_BF(tfa, MANSTATE);
+#else
+		manstate = TFA_GET_BF(tfa, MANSTATE);
+#endif
+
 		pr_debug("%s: [%d] manstate = %d\n",
 			__func__, tfa->dev_idx, manstate);
 
@@ -7885,8 +7822,8 @@ EXPORT_SYMBOL(tfa_configure_log);
 enum tfa98xx_error tfa_update_log(void)
 {
 	enum tfa98xx_error err;
-	struct tfa_device *tfa = NULL, *ntfa = NULL;
-	int ndev, idx, channel, offset, group, i;
+	struct tfa_device *tfa = NULL;
+	int ndev, idx, offset, group, i;
 #if defined(TFA_CUSTOM_FORMAT_AT_RESPONSE)
 	uint8_t cmd_buf[(1 + TFA_LOG_MAX_COUNT * MAX_HANDLES) * 3] = {0};
 #else
@@ -7930,16 +7867,7 @@ enum tfa98xx_error tfa_update_log(void)
 	tfa98xx_convert_bytes2data(read_size, cmd_buf, data);
 
 	for (idx = 0; idx < ndev; idx++) {
-		ntfa = tfa98xx_get_tfa_device_from_index(idx);
-
-		if (ntfa == NULL)
-			continue;
-		if (!tfa_is_active_device(ntfa))
-			continue;
-
-		channel = tfa_get_channel_from_dev_idx(ntfa, -1);
-
-		offset = channel * TFA_LOG_MAX_COUNT;
+		offset = idx * TFA_LOG_MAX_COUNT;
 		group = idx * ID_BLACKBOX_MAX;
 
 		pr_info("%s: dev %d - raw blackbox: [X = 0x%08x, T = 0x%08x]\n",
@@ -8107,8 +8035,7 @@ enum tfa98xx_error tfa_write_volume(struct tfa_device *tfa, int *sknt)
 	enum tfa98xx_error error = TFA98XX_ERROR_OK;
 	unsigned char bytes[2 * 3] = {0};
 	int i, spkr_count = 0;
-	int active_channel = -1, channel = 0;
-	int stcontrol[MAX_CHANNELS] = {0};
+	int stcontrol[MAX_HANDLES] = {0};
 	int data = 0;
 
 	error = tfa_supported_speakers(tfa, &spkr_count);
@@ -8121,43 +8048,46 @@ enum tfa98xx_error tfa_write_volume(struct tfa_device *tfa, int *sknt)
 	if (tfa->is_probus_device && tfa->dev_count > 1)
 		spkr_count = tfa->dev_count;
 
-	if (sknt == NULL) {
-		pr_info("%s: reset surface temperature control\n",
+	if (sknt != NULL)
+		memcpy(stcontrol, sknt, spkr_count * sizeof(int));
+	else
+		pr_info("%s: initialize surface temperature control\n",
 			__func__);
-	} else {
-		/* map surface temperature per channel */
-		for (i = 0; i < spkr_count; i++) {
-			channel = tfa_get_channel_from_dev_idx(NULL, i);
-			if (channel != -1)
-				stcontrol[channel] = sknt[i];
+
+	/* We have to copy it for both channels. Even when MONO! */
+	if (tfa->dev_count == 1) { /* mono */
+		stcontrol[1] = stcontrol[0];
+		spkr_count++;
+	} else if (tfa->dev_count == 2) { /* stereo */
+		switch (tfa->active_handle) {
+		case 0:
+			pr_info("%s: copy stc from dev 0 to dev 1\n",
+				__func__);
+			stcontrol[1] = stcontrol[0];
+			break;
+		case 1:
+			pr_info("%s: copy stc from dev 1 to dev 0\n",
+				__func__);
+			stcontrol[0] = stcontrol[1];
+			break;
+		case -1:
+			/* individually configured */
+		default:
+			/* wrong handle */
+			break;
 		}
+	} else {
+		pr_err("%s: more than 2 devices were selected (%d devices)\n",
+			__func__, tfa->dev_count);
+		spkr_count = 2;
 	}
 
-	if (tfa->dev_count == 1) /* mono: duplicate channel 0 */
-		active_channel = 0;
-	else if (tfa->dev_count >= 2) /* stereo and beyond */
-		active_channel = tfa_get_channel_from_dev_idx(NULL,
-			tfa->active_handle); /* -1 if active_handle == -1 */
-
-	if (active_channel != -1) {
-		pr_info("%s: copy cal from active dev %d (channel %d)\n",
-			__func__, tfa->active_handle,
-			active_channel);
-		for (i = 0; i < MAX_CHANNELS; i++)
-			stcontrol[i] = stcontrol[active_channel];
-	}
-
-	for (i = 0; i < MAX_CHANNELS; i++) {
+	for (i = 0; i < spkr_count; i++) {
 #if defined(TFA_USE_STC_VOLUME_TABLE)
 		stcontrol[i] = (stcontrol[i] < 0xff) ? stcontrol[i] : 0xff;
 		pr_info("%s: dev %d - volume index (%d)\n",
 			__func__, i, stcontrol[i]);
 		data = stcontrol[i];
-#else
-		pr_info("%s: dev %d - surface temperature (%d)\n",
-			__func__, i, stcontrol[i]);
-#if defined(TFA_USE_CUSTOM_SET_TSURF)
-		data = (int)stcontrol[i]; /* send value directly */
 #else
 		/* 10-bit signed integer */
 		if (stcontrol[i] >= TFA2_FW_T_DATA_MAX) {
@@ -8172,6 +8102,11 @@ enum tfa98xx_error tfa_write_volume(struct tfa_device *tfa, int *sknt)
 				-TFA2_FW_T_DATA_MAX);
 			stcontrol[i] = -TFA2_FW_T_DATA_MAX;
 		}
+		pr_info("%s: dev %d - surface temperature (%d)\n",
+			__func__, i, stcontrol[i]);
+#if defined(TFA_USE_CUSTOM_SET_TSURF)
+		data = (int)stcontrol[i];
+#else
 		data = (int)stcontrol[i] * TFA2_FW_T_DATA_SCALE;
 #endif /* TFA_USE_CUSTOM_SET_TSURF */
 #endif /* TFA_USE_STC_VOLUME_TABLE */

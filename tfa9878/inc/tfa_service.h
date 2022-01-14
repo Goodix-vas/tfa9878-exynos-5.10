@@ -20,7 +20,6 @@
 extern "C" {
 #include "TFA_I2C.h"
 #endif
-#include "tfa_device.h"
 
 /* Linux kernel module defines TFA98XX_GIT_VERSIONS
  * in the linux_driver/Makefile
@@ -46,6 +45,8 @@ extern "C" {
 	/* #define TFA98XX_API_REV_STR "v6.7.4+-Oct.06,2020" */
 	#define TFA98XX_API_REV_STR "v6.7.4-++-Jan.27,2021"
 #endif
+
+#include "tfa_device.h"
 
 /*
  * data previously defined in Tfa9888_dsp.h
@@ -112,7 +113,6 @@ extern "C" {
 #define TFA98XX_LOADFW_NTRIES			20
 #define TFA98XX_WAITRESULT_NTRIES		40
 #define TFA98XX_WAITRESULT_NTRIES_LONG	2000
-#define TFA98XX_WAITPOWERUP_NTRIES		100
 
 /* following lengths are in bytes */
 #define TFA98XX_PRESET_LENGTH			87
@@ -794,7 +794,7 @@ enum tfa98xx_error tfa98xx_dsp_write_drc(struct tfa_device *tfa,
  * @param length length of the character buffer to write
  * @param buf character buffer to write
  */
-int tfa_dsp_msg_rpc(void *tfa, int length, const char *buf);
+int tfa_dsp_msg(void *tfa, int length, const char *buf);
 
 /*
  * Read a message from dsp
@@ -802,7 +802,7 @@ int tfa_dsp_msg_rpc(void *tfa, int length, const char *buf);
  * @param length number of bytes of the message
  * @param bytes pointer to unsigned char buffer
  */
-int tfa_dsp_msg_read_rpc(void *tfa, int length, unsigned char *bytes);
+int tfa_dsp_msg_read(void *tfa, int length, unsigned char *bytes);
 
 /*
  * The wrapper functions to call the dsp msg, register and memory function
@@ -827,16 +827,9 @@ enum tfa98xx_error mem_read(struct tfa_device *tfa,
 
 enum tfa98xx_error dsp_partial_coefficients(struct tfa_device *tfa,
 	uint8_t *prev, uint8_t *next);
-
 #if defined(USE_TFA9894N2)
-int tfa_is_94_N2_device(struct tfa_device *tfa);
+int is_94_N2_device(struct tfa_device *tfa);
 #endif
-
-/*
- * Get manstate from device
- * @param tfa the device struct pointer
- */
-int tfa_get_manstate(struct tfa_device *tfa);
 
 /*
  * write/read raw msg functions:
@@ -1136,7 +1129,7 @@ enum tfa98xx_error tfa_cf_powerup(struct tfa_device *tfa);
  * print the current device manager state
  * @param tfa the device struct pointer
  */
-enum tfa98xx_error tfa_show_current_state(struct tfa_device *tfa);
+enum tfa98xx_error show_current_state(struct tfa_device *tfa);
 
 /*
  * Init registers and coldboot dsp

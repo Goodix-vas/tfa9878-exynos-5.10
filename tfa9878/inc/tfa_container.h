@@ -154,14 +154,6 @@ int tfa_cont_get_cal_profile(struct tfa_device *tfa);
 int tfa_cont_is_tap_profile(struct tfa_device *tfa, int prof_idx);
 
 /*
- * Is the profile a standby profile ?
- * @param tfa the device struct pointer
- * @param prof_idx the index of the profile
- * @return 1 if the profile is a standby profile or 0 if not
- */
-int tfa_cont_is_standby_profile(struct tfa_device *tfa, int prof_idx);
-
-/*
  * Is the profile specific to device ?
  * @param dev_idx the index of the device
  * @param prof_idx the index of the profile
@@ -369,7 +361,7 @@ enum tfa98xx_error tfa_run_read_bitfield(struct tfa_device *tfa,
  * @param tfa the device struct pointer
  * @param hw_feature_register pointer to where hw features are stored
  */
-void tfa_get_hw_features_from_cnt(struct tfa_device *tfa,
+void get_hw_features_from_cnt(struct tfa_device *tfa,
 	int *hw_feature_register);
 
 /*
@@ -377,7 +369,7 @@ void tfa_get_hw_features_from_cnt(struct tfa_device *tfa,
  * @param tfa the device struct pointer
  * @param sw_feature_register pointer to where sw features are stored
  */
-void tfa_get_sw_features_from_cnt(struct tfa_device *tfa,
+void get_sw_features_from_cnt(struct tfa_device *tfa,
 	int sw_feature_register[2]);
 
 /*

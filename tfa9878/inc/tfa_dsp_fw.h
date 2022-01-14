@@ -45,12 +45,6 @@ enum tfa_fw_event {/* not all available on each device */
 	TFA_FW_MAX
 };
 
-#define TFA_API_SBFW_BIG_M_88	2
-#define TFA_API_SBFW_8_09_00_BIG_M		8
-#define TFA_API_SBFW_PO_BIG_M	10
-#define TFA_API_SBFW_8_09_00_SMALL_M	31
-#define TFA_API_SBFW_9_00_00_SMALL_M	33
-
 /* the following type mappings are compiler specific */
 #define subaddress_t unsigned char
 
